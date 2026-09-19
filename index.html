@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex, nofollow">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; font-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <title>Formular</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://telegram.org/js/telegram-web-app.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header><span class="eyebrow">DOKUMENT</span><h1 id="title">Formular</h1><p id="summary"></p></header>
+    <form id="document-form" autocomplete="off">
+      <div id="fields"></div>
+      <p id="error" role="alert" hidden></p>
+      <footer>
+        <button type="button" id="preview" class="secondary">Vorschau aktualisieren</button>
+        <button type="submit" id="submit">PDF erstellen</button>
+      </footer>
+    </form>
+  </main>
+</body>
+</html>
