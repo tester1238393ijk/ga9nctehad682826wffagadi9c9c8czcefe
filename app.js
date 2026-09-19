@@ -145,14 +145,17 @@
     const variant = controls.get('variant')?.value;
     const areaLabel = controls.get('area_sqm')?.closest('.field').querySelector('label');
     if (areaLabel) areaLabel.textContent = variant === 'variant2' ? 'Wohnfläche m²' : 'Zimmerfläche m²';
-    const apartment = ['floor','rooms_description','additional_space','keys_description','additional_tenants','garage_cents','heating_cents','rent_adjustment','graduated_rents','rent_exception','term_end','term_reason'];
+    const apartment = ['floor','rooms_description','additional_space','keys_description','garage_cents','heating_cents','rent_adjustment','graduated_rents','rent_exception','term_end','term_reason'];
     const room = ['shared_rooms','furnishings','shared_use','key_count','key_description'];
     for (const [key,input] of controls) {
-      let hidden = Boolean(variant && (variant === 'variant2' ? room.includes(key) : apartment.includes(key)));
+      let hidden = context.kind === 'lease' && ['variant','signing_city','signing_date'].includes(key) || Boolean(variant && (variant === 'variant2' ? room.includes(key) : apartment.includes(key)));
       if (['owner_first_names','owner_last_names'].includes(key)) hidden = controls.get('owner_is_provider')?.value !== 'Nein';
       if (key === 'graduated_rents') hidden ||= controls.get('rent_adjustment')?.value !== 'graduated';
       if (key === 'term_reason') hidden ||= !controls.get('term_end')?.value;
       input.closest('.field').hidden = hidden;
+    }
+    for (const section of container.querySelectorAll('details')) {
+      section.hidden = ![...section.querySelectorAll('.field')].some(field => !field.hidden);
     }
   }
   function renderGroups() {
@@ -165,30 +168,29 @@
       remove.addEventListener('click',() => {groups.splice(index,1);renderGroups();});
       header.append(element('h2','Schild '+(index+1)),remove);
       card.append(header);
-      for (const [key,label] of [['names','Namen auf dem Schild'],['phone','Telefonnummer für Fundhinweis']]) {
-        const wrap = element('div',undefined,'field');
-        const input = element(key === 'names' ? 'textarea' : 'input');
-        const title = element('label',label);
-        input.id = 'sign-'+index+'-'+key;
-        title.htmlFor = input.id;
-        input.value = key === 'names' ? group.names.join('\n') : group.phone;
-        input.maxLength = key === 'names' ? 20000 : 80;
-        if (key === 'phone') input.type = 'tel';
-        input.addEventListener('input',() => {
-          group[key] = key === 'names' ? [...new Set(input.value.split(/[\r\n;]+/).map(s=>s.trim()).filter(Boolean))] : input.value;
-          error.hidden = true;
-        });
-        wrap.append(title,input);card.append(wrap);
-      }
+      const wrap=element('div',undefined,'field'), title=element('label','Namen auf dem Schild'), input=element('textarea');
+      input.id='sign-'+index+'-names'; title.htmlFor=input.id; input.value=group.names.join('\n');input.maxLength=20000;
+      input.addEventListener('input',()=>{group.names=[...new Set(input.value.split(/[\r\n;]+/).map(value=>value.trim()).filter(Boolean))];error.hidden=true;});
+      wrap.append(title,input);card.append(wrap);
+      group.phones.forEach((phone,phoneIndex)=>{
+        const row=element('div',undefined,'phone-row'), field=element('div',undefined,'field'), label=element('label','Fundhinweis '+(phoneIndex+1)+' · Telefonnummer'), value=element('input');
+        value.type='tel';value.maxLength=80;value.id='sign-'+index+'-phone-'+phoneIndex;label.htmlFor=value.id;value.value=phone;
+        value.addEventListener('input',()=>{group.phones[phoneIndex]=value.value;error.hidden=true;});
+        const remove=element('button','Entfernen','secondary');remove.type='button';remove.setAttribute('aria-label','Fundhinweis '+(phoneIndex+1)+' entfernen');
+        remove.addEventListener('click',()=>{group.phones.splice(phoneIndex,1);renderGroups();});
+        field.append(label,value);row.append(field,remove);card.append(row);
+      });
+      const addPhone=element('button','Fundhinweis hinzufügen','secondary');addPhone.type='button';
+      addPhone.addEventListener('click',()=>{group.phones.push('');renderGroups();});card.append(addPhone);
       container.append(card);
     });
     const add = element('button','Schild hinzufügen','secondary');
     add.type = 'button';add.disabled = groups.length >= 100;
-    add.addEventListener('click',() => {groups.push({names:[],phone:''});renderGroups();});
+    add.addEventListener('click',() => {groups.push({names:[],phones:[]});renderGroups();});
     container.append(add);
   }
   if (context.kind === 'nameplates') {
-    groups = context.groups.map(group => ({names:Array.isArray(group.names) ? group.names.filter(n => typeof n === 'string') : [],phone:typeof group.phone === 'string' ? group.phone : ''}));
+    groups = context.groups.map(group => ({names:Array.isArray(group.names) ? group.names.filter(n => typeof n === 'string') : [],phones:Array.isArray(group.phones) ? group.phones.filter(phone=>typeof phone==='string') : group.phone ? [group.phone] : []}));
     renderGroups();
   } else {
     const sections = new Map();
@@ -221,7 +223,7 @@
     const payload = {v:1,t:context.t,action};
     if(removeAttachment) payload.remove_attachment=true;
     if (context.kind === 'nameplates') payload.groups = groups;
-    else payload.changes = Object.fromEntries([...controls].filter(([key,input]) => input.value !== original.get(key)).map(([key,input]) => [key,input.value]));
+    else payload.changes = Object.fromEntries([...controls].filter(([key,input]) => input.value !== original.get(key) && !(context.kind === 'lease' && ['variant','signing_city','signing_date'].includes(key))).map(([key,input]) => [key,input.value]));
     const data = JSON.stringify(payload);
     if (new TextEncoder().encode(data).length > 4096) {fail('Zu viele Änderungen für eine Nachricht. Bitte zuerst einen Teil übernehmen und danach weiter bearbeiten.');return;}
     try {telegram.sendData(data);submit.disabled = true;}
