@@ -47,8 +47,8 @@
       if (parsed.v === 2 && schemas?.fields[parsed.kind]) {
         parsed.title=schemas.titles[parsed.kind];
         if(parsed.kind!=='nameplates') {
-          if(!Array.isArray(parsed.values)||parsed.values.length!==schemas.fields[parsed.kind].length||parsed.values.some(value=>typeof value!=='string')) throw new Error();
-          parsed.fields=schemas.fields[parsed.kind].map((field,index)=>({...field,value:parsed.values[index],...(field.key==='variant'?{options:['variant1','variant2','variant3'].map((id,i)=>[id,parsed.variants?.[i]||('Variante '+(i+1))])}:{}),...(field.key==='rent_adjustment'?{options:[['fixed','Keine Vereinbarung'],['index','Indexmiete'],['graduated','Staffelmiete']]}:{})}));
+          if(!Array.isArray(parsed.values)||![schemas.fields[parsed.kind].length,({lease:schemas.fields.lease.length-3,'operating-costs':schemas.fields['operating-costs'].length-5})[parsed.kind]].includes(parsed.values.length)||parsed.values.some(value=>typeof value!=='string')) throw new Error();
+          parsed.fields=schemas.fields[parsed.kind].slice(0,parsed.values.length).map((field,index)=>({...field,value:parsed.values[index],...(field.key==='variant'?{options:['variant1','variant2','variant3'].map((id,i)=>[id,parsed.variants?.[i]||('Variante '+(i+1))])}:{}),...(field.key==='rent_adjustment'?{options:[['fixed','Keine Vereinbarung'],['index','Indexmiete'],['graduated','Staffelmiete']]}:{})}));
           parsed.defaults=schemas.defaults;
         }
       }
@@ -71,9 +71,10 @@
   if(telegram?.isVersionAtLeast?.('7.10')) telegram.setBottomBarColor('#171719');
   function groupTitle(key) {
     if (key === 'variant') return 'Variante';
+    if (key === 'payment_qr_enabled') return 'Zahlung';
     if (key.startsWith('tenant_') || ['first_names','last_names','additional_residents','additional_tenants'].includes(key)) return 'Person';
     if (key.startsWith('landlord_') || key.startsWith('provider_') || key.startsWith('owner_')) return 'Vermieter / Wohnungsgeber';
-    if (/^(rent|deposit)_(holder|bank|iban|reference)$/.test(key)) return 'Konten';
+    if (/^(rent|deposit)_(holder|bank|iban|reference|bic)$/.test(key)) return 'Konten';
     if (key.startsWith('signing_')) return context.kind==='operating-costs'?'Briefdatum':'Unterschrift';
     if(context.kind==='operating-costs') {
       if(/^(management|tax_|additional_costs)/.test(key)) return 'Betriebskosten';
@@ -139,7 +140,7 @@
     const payments=cents('prepayment_cents')*number('prepayment_count');
     const balance=costs-payments;
     const summary=document.getElementById('cost-totals');
-    if(summary) summary.textContent=(balance<0?'Guthaben':balance>0?'Nachzahlung':'Saldo')+' · '+new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'}).format(Math.abs(balance)/100);
+    if(summary) {summary.textContent=(balance<0?'Guthaben':balance>0?'Nachzahlung':'Saldo')+' · '+(balance<0?'+':'')+new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'}).format(Math.abs(balance)/100);summary.classList.toggle('refund',balance<0);}
   }
   function visibility() {
     const variant = controls.get('variant')?.value;

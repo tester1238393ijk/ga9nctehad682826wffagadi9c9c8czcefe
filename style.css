@@ -4,3 +4,5 @@
 .phone-row { display:flex; align-items:end; gap:10px; margin-bottom:12px; }
 .phone-row .field { flex:1; min-width:0; }
 .phone-row button { margin-bottom:12px; }
+
+#cost-totals.refund {color:#9ed6b4;}
