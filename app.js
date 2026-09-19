@@ -5,7 +5,7 @@
   const form = document.getElementById('document-form');
   const container = document.getElementById('fields');
   const error = document.getElementById('error');
-  const preview = document.getElementById('preview');
+  const schemas = window.DocumentForms;
   const submit = document.getElementById('submit');
   const demo = {
     title: 'Formular', kind: 'lease', fields: [
@@ -38,12 +38,21 @@
     error.scrollIntoView({block:'center',behavior:'smooth'});
   }
   try {
-    const encoded = new URLSearchParams(location.hash.slice(1).replace(/#/g,'&')).get('form');
+    const encoded = window.DocumentContext || new URLSearchParams(location.hash.slice(1).replace(/#/g,'&')).get('form');
+    delete window.DocumentContext;
     if (encoded) {
       if (encoded.length > 150000) throw new Error();
       const bytes = Uint8Array.from(atob(encoded.replace(/-/g,'+').replace(/_/g,'/')), c => c.charCodeAt(0));
       const parsed = JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));
-      if (parsed.v !== 1 || typeof parsed.t !== 'string' || !/^[\w-]{32}$/.test(parsed.t) || typeof parsed.title !== 'string' || !['lease','residence','wifi','nameplates'].includes(parsed.kind)) throw new Error();
+      if (parsed.v === 2 && schemas?.fields[parsed.kind]) {
+        parsed.title=schemas.titles[parsed.kind];
+        if(parsed.kind!=='nameplates') {
+          if(!Array.isArray(parsed.values)||parsed.values.length!==schemas.fields[parsed.kind].length||parsed.values.some(value=>typeof value!=='string')) throw new Error();
+          parsed.fields=schemas.fields[parsed.kind].map((field,index)=>({...field,value:parsed.values[index],...(field.key==='variant'?{options:['variant1','variant2','variant3'].map((id,i)=>[id,parsed.variants?.[i]||('Variante '+(i+1))])}:{}),...(field.key==='rent_adjustment'?{options:[['fixed','Keine Vereinbarung'],['index','Indexmiete'],['graduated','Staffelmiete']]}:{})}));
+          parsed.defaults=schemas.defaults;
+        }
+      }
+      if (![1,2].includes(parsed.v) || typeof parsed.t !== 'string' || !/^[\w-]{32}$/.test(parsed.t) || typeof parsed.title !== 'string' || !['lease','residence','wifi','nameplates','operating-costs'].includes(parsed.kind)) throw new Error();
       if (parsed.kind === 'nameplates') {
         if (!Array.isArray(parsed.groups) || parsed.groups.length > 100) throw new Error();
       } else if (!Array.isArray(parsed.fields) || parsed.fields.length > 100 || parsed.fields.some(f => !f || typeof f.key !== 'string' || !/^[a-z_]+$/.test(f.key) || typeof f.label !== 'string' || typeof f.value !== 'string')) throw new Error();
@@ -54,17 +63,24 @@
   history.replaceState(null,'',location.pathname);
   document.getElementById('title').textContent = context.title;
   document.getElementById('summary').textContent = context.kind === 'nameplates' ? '' : context.fields.find(f => f.key === 'tenant_name')?.value || '';
-  preview.disabled = !ready;
   submit.disabled = !ready;
   if (!ready) submit.textContent = 'Über Telegram öffnen';
   telegram?.ready();
   telegram?.expand();
+  if(telegram?.isVersionAtLeast?.('6.1')) {telegram.setHeaderColor('#171719');telegram.setBackgroundColor('#171719');}
+  if(telegram?.isVersionAtLeast?.('7.10')) telegram.setBottomBarColor('#171719');
   function groupTitle(key) {
     if (key === 'variant') return 'Variante';
     if (key.startsWith('tenant_') || ['first_names','last_names','additional_residents','additional_tenants'].includes(key)) return 'Person';
     if (key.startsWith('landlord_') || key.startsWith('provider_') || key.startsWith('owner_')) return 'Vermieter / Wohnungsgeber';
     if (/^(rent|deposit)_(holder|bank|iban|reference)$/.test(key)) return 'Konten';
-    if (key.startsWith('signing_')) return 'Unterschrift';
+    if (key.startsWith('signing_')) return context.kind==='operating-costs'?'Briefdatum':'Unterschrift';
+    if(context.kind==='operating-costs') {
+      if(/^(management|tax_|additional_costs)/.test(key)) return 'Betriebskosten';
+      if(key.startsWith('prepayment_')) return 'Vorauszahlungen';
+      if(/^(refund_|payment_)/.test(key)) return 'Zahlung';
+      if(['salutation','notes','attachment_label'].includes(key)) return 'Brief und Anlage';
+    }
     return 'Wohnung und Vereinbarungen';
   }
   function inputFor(field) {
@@ -82,7 +98,7 @@
         node.value = option[0];
         input.append(node);
       }
-    } else if (/(address|rooms|furnishings|shared_use|description|tenants|residents|agreements|reason|exception|graduated)/.test(field.key)) {
+    } else if (/(address|rooms|furnishings|shared_use|description|tenants|residents|agreements|reason|exception|graduated|notes)/.test(field.key)) {
       input = element('textarea');
       input.rows = 3;
       wrap.classList.add('wide');
@@ -102,6 +118,7 @@
     controls.set(field.key,input);
     input.addEventListener('input',() => {
       error.hidden = true;
+      updateCostTotals();
       if (field.key === 'tenant_name') document.getElementById('summary').textContent = input.value;
     });
     if (field.key === 'variant') input.addEventListener('change',() => {
@@ -113,6 +130,16 @@
     if (['owner_is_provider','rent_adjustment','term_end'].includes(field.key)) input.addEventListener('change',visibility);
     wrap.append(label,input);
     return wrap;
+  }
+  function updateCostTotals() {
+    if(context.kind!=='operating-costs') return;
+    const number=key=>{let value=controls.get(key)?.value||'0';if(value.includes(',')) value=value.replace(/\./g,'').replace(',','.');return Number(value.replace(/\s/g,''))||0;};
+    const cents=key=>Math.round(number(key)*100);
+    const costs=cents('management_cents')+cents('tax_installment_cents')*number('tax_installments')+cents('additional_costs_cents');
+    const payments=cents('prepayment_cents')*number('prepayment_count');
+    const balance=costs-payments;
+    const summary=document.getElementById('cost-totals');
+    if(summary) summary.textContent=(balance<0?'Guthaben':balance>0?'Nachzahlung':'Saldo')+' · '+new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'}).format(Math.abs(balance)/100);
   }
   function visibility() {
     const variant = controls.get('variant')?.value;
@@ -169,7 +196,7 @@
       const title = groupTitle(field.key);
       if (!sections.has(title)) {
         const details = element('details');
-        details.open = sections.size < 2;
+        details.open = true;
         const grid = element('div',undefined,'grid');
         details.append(element('summary',title),grid);
         container.append(details);
@@ -179,17 +206,26 @@
     }
     visibility();
   }
+  let removeAttachment=false;
+  if(context.kind==='operating-costs') {
+    const totals=element('div',undefined,'totals');totals.id='cost-totals';container.append(totals);updateCostTotals();
+    if(context.attachment) {
+      const label=element('label',undefined,'attachment-option'), checkbox=element('input');checkbox.type='checkbox';
+      checkbox.addEventListener('change',()=>{removeAttachment=checkbox.checked;});label.append(checkbox,element('span','Bisherige Bildanlage entfernen'));container.append(label);
+    }
+    container.append(element('p','Eine Bildanlage kannst du nach dem Speichern als Foto oder Datei im Chat senden.','attachment-help'));
+  }
   function send(action) {
     if (!ready) return;
     error.hidden = true;
     const payload = {v:1,t:context.t,action};
+    if(removeAttachment) payload.remove_attachment=true;
     if (context.kind === 'nameplates') payload.groups = groups;
     else payload.changes = Object.fromEntries([...controls].filter(([key,input]) => input.value !== original.get(key)).map(([key,input]) => [key,input.value]));
     const data = JSON.stringify(payload);
-    if (new TextEncoder().encode(data).length > 4096) {fail('Zu viele Änderungen für eine Nachricht. Bitte zuerst einen Teil mit „Vorschau aktualisieren“ übernehmen.');return;}
-    try {telegram.sendData(data);preview.disabled = true;submit.disabled = true;}
+    if (new TextEncoder().encode(data).length > 4096) {fail('Zu viele Änderungen für eine Nachricht. Bitte zuerst einen Teil übernehmen und danach weiter bearbeiten.');return;}
+    try {telegram.sendData(data);submit.disabled = true;}
     catch {fail('Senden fehlgeschlagen. Bitte erneut versuchen.');}
   }
-  form.addEventListener('submit',event => {event.preventDefault();send('pdf');});
-  preview.addEventListener('click',() => send('preview'));
+  form.addEventListener('submit',event => {event.preventDefault();send('preview');});
 })();
