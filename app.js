@@ -44,15 +44,17 @@
       if (encoded.length > 150000) throw new Error();
       const bytes = Uint8Array.from(atob(encoded.replace(/-/g,'+').replace(/_/g,'/')), c => c.charCodeAt(0));
       const parsed = JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));
-      if (parsed.v === 2 && schemas?.fields[parsed.kind]) {
+      if ([2,3].includes(parsed.v) && schemas?.fields[parsed.kind]) {
         parsed.title=schemas.titles[parsed.kind];
         if(parsed.kind!=='nameplates') {
-          if(!Array.isArray(parsed.values)||![schemas.fields[parsed.kind].length,({lease:schemas.fields.lease.length-3,'operating-costs':schemas.fields['operating-costs'].length-5})[parsed.kind]].includes(parsed.values.length)||parsed.values.some(value=>typeof value!=='string')) throw new Error();
-          parsed.fields=schemas.fields[parsed.kind].slice(0,parsed.values.length).map((field,index)=>({...field,value:parsed.values[index],...(field.key==='variant'?{options:['variant1','variant2','variant3'].map((id,i)=>[id,parsed.variants?.[i]||('Variante '+(i+1))])}:{}),...(field.key==='rent_adjustment'?{options:[['fixed','Keine Vereinbarung'],['index','Indexmiete'],['graduated','Staffelmiete']]}:{})}));
+          const fields=(parsed.v===2?schemas.legacyFields:schemas.fields)[parsed.kind];
+          const lengths=parsed.v===2?[fields.length,fields.length-({lease:3,'operating-costs':5}[parsed.kind]||0)]:[fields.length];
+          if(!Array.isArray(parsed.values)||!lengths.includes(parsed.values.length)||parsed.values.some(value=>typeof value!=='string')) throw new Error();
+          parsed.fields=fields.slice(0,parsed.values.length).map((field,index)=>({...field,value:parsed.values[index],...(field.key==='variant'?{options:['variant1','variant2','variant3'].map((id,i)=>[id,parsed.variants?.[i]||('Variante '+(i+1))])}:{}),...(field.key==='rent_adjustment'?{options:[['fixed','Keine Vereinbarung'],['index','Indexmiete'],['graduated','Staffelmiete']]}:{})}));
           parsed.defaults=schemas.defaults;
         }
       }
-      if (![1,2].includes(parsed.v) || typeof parsed.t !== 'string' || !/^[\w-]{32}$/.test(parsed.t) || typeof parsed.title !== 'string' || !['lease','residence','wifi','nameplates','operating-costs'].includes(parsed.kind)) throw new Error();
+      if (![1,2,3].includes(parsed.v) || typeof parsed.t !== 'string' || !/^[\w-]{32}$/.test(parsed.t) || typeof parsed.title !== 'string' || !['lease','residence','wifi','nameplates','operating-costs'].includes(parsed.kind)) throw new Error();
       if (parsed.kind === 'nameplates') {
         if (!Array.isArray(parsed.groups) || parsed.groups.length > 100) throw new Error();
       } else if (!Array.isArray(parsed.fields) || parsed.fields.length > 100 || parsed.fields.some(f => !f || typeof f.key !== 'string' || !/^[a-z_]+$/.test(f.key) || typeof f.label !== 'string' || typeof f.value !== 'string')) throw new Error();
@@ -136,7 +138,8 @@
     if(context.kind!=='operating-costs') return;
     const number=key=>{let value=controls.get(key)?.value||'0';if(value.includes(',')) value=value.replace(/\./g,'').replace(',','.');return Number(value.replace(/\s/g,''))||0;};
     const cents=key=>Math.round(number(key)*100);
-    const costs=cents('management_cents')+cents('tax_installment_cents')*number('tax_installments')+cents('additional_costs_cents');
+    const tax=controls.has('tax_cents')?cents('tax_cents'):cents('tax_installment_cents')*number('tax_installments');
+    const costs=cents('management_cents')+tax+cents('additional_costs_cents');
     const payments=cents('prepayment_cents')*number('prepayment_count');
     const balance=costs-payments;
     const summary=document.getElementById('cost-totals');
